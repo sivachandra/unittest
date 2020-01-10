@@ -1,52 +1,97 @@
+//===------------------ Base class for libc unittests -----------*- C++ -*-===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+// This file should stricly not include any other file. Not even standard
+// library headers.
+
 namespace llvm_libc {
 
+class RunContext;
+
 class Test {
- private:
+private:
   const char *Name;
   Test *Next = nullptr;
 
- public:
-  virtual void SetUp();
-  virtual void TearDown();
+public:
+  enum Condition {
+    Cond_None,
+    Cond_EQ,
+    Cond_NE,
+    Cond_LT,
+    Cond_LE,
+    Cond_GT,
+    Cond_GE,
+  };
 
-  static int RunTests();
+  virtual ~Test() {}
+  virtual void SetUp() {}
+  virtual void TearDown() {}
 
- protected:
-  explicit Test(const char *N) : Name(N) {}
+  static int runTests();
+
+protected:
+  explicit Test(const char *N);
+
+  static void addTest(Test *T);
 
   template <typename ValType>
-  static bool TestEq(ValType LHS, ValType RHS, const char *File, unsigned long Line);
+  static bool test(RunContext &Ctx, Condition Cond, ValType LHS, ValType RHS,
+                   const char *LHSStr, const char *RHSStr, const char *File,
+                   unsigned long Line);
 
-  static bool TestStrEq(const char *LHS, const char *RHS,
+  static bool testStrEq(RunContext &Ctx, const char *LHS, const char *RHS,
+                        const char *LHSStr, const char *RHSStr,
                         const char *File, unsigned long Line);
 
- private:
-  virtual void Run() = 0;
+  static bool testStrNe(RunContext &Ctx, const char *LHS, const char *RHS,
+                        const char *LHSStr, const char *RHSStr,
+                        const char *File, unsigned long Line);
 
-  static void AddTest(Test *T);
-  static void ReportEqError(const char *);
+private:
+  virtual void Run(RunContext &Ctx) = 0;
 
   static Test *Start;
   static Test *End;
 };
 
-#define TEST(SuiteName, TestName) \
-    class SuiteName##_##TestName : public Test { \
-     public: \
-       SuiteName##_##TestName() : Test(#SuiteName "_" #TestName) { \
-         AddTest(this); \
-       } \
-       virtual void Run() override; \
-    }; \
-    SuiteName##_##TestName SuiteName##_##TestName##_Instance; \
-    void SuiteName##_##TestName::Run()
-
-#define EXPECT_EQ(LHS, RHS) Test::TestEq((LHS), (RHS), __FILE__, __LINE__)
-#define EXPECT_STREQ(LHS, RHS) Test::TestStrEq((LHS), (RHS), __FILE__, __LINE__)
-
-#define ASSERT_EQ(LHS, RHS) \
-    if (!Test::TestEq((LHS), (RHS), __FILE__, __LINE__)) return
-#define ASSERT_STREQ(LHS, RHS) \
-    if (!Test::TestStrEq((LHS), (RHS), __FILE__, __LINE__)) return
-
 } // namespace llvm_libc
+
+#define TEST(SuiteName, TestName)                                              \
+  class SuiteName##_##TestName : public llvm_libc::Test {                      \
+  public:                                                                      \
+    SuiteName##_##TestName() : Test(#SuiteName "." #TestName) {                \
+      addTest(this);                                                           \
+    }                                                                          \
+    void Run(llvm_libc::RunContext &) override;                                \
+  };                                                                           \
+  SuiteName##_##TestName SuiteName##_##TestName##_Instance;                    \
+  void SuiteName##_##TestName::Run(llvm_libc::RunContext &Ctx)
+
+#define EXPECT_EQ(LHS, RHS)                                                    \
+  llvm_libc::Test::test(Ctx, Cond_EQ, (LHS), (RHS), #LHS, #RHS, __FILE__,      \
+                        __LINE__)
+#define ASSERT_EQ(LHS, RHS)                                                    \
+  if (!llvm_libc::Test::test(Ctx, Cond_EQ, (LHS), (RHS), #LHS, #RHS, __FILE__, \
+                             __LINE__))                                        \
+  return
+
+#define EXPECT_STREQ(LHS, RHS)                                                 \
+  llvm_libc::Test::testStrEq(Ctx, (LHS), (RHS), #LHS, #RHS, __FILE__, __LINE__)
+#define ASSERT_STREQ(LHS, RHS)                                                 \
+  if (!llvm_libc::Test::testStrEq(Ctx, (LHS), (RHS), #LHS, #RHS, __FILE__,     \
+                                  __LINE__))                                   \
+  return
+
+#define EXPECT_NE(LHS, RHS)                                                    \
+  llvm_libc::Test::test(Ctx, Cond_NE, (LHS), (RHS), #LHS, #RHS, __FILE__,      \
+                        __LINE__)
+#define ASSERT_NE(LHS, RHS)                                                    \
+  if (!llvm_libc::Test::test(Ctx, Cond_NE, (LHS), (RHS), #LHS, #RHS, __FILE__, \
+                             __LINE__))                                        \
+  return
